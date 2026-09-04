@@ -1,0 +1,2 @@
+- [OpenAPI/Zod compatibility](openapi-zod-compatibility.md) — integer schemas currently need a numeric-boundary workaround for generated Zod 3 validation.
+- [AirGrid map WebGL fallback](airgrid-map-webgl-fallback.md) — keep an interactive DOM tile-map fallback when preview browsers cannot create WebGL.

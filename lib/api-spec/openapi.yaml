@@ -1,0 +1,285 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: AirGrid geospatial intelligence demo API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: air-quality
+    description: Air-quality demo data and spatial estimates
+  - name: validation
+    description: Held-out validation dataset status and metrics
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /air-quality/summary:
+    get:
+      operationId: getAirQualitySummary
+      tags: [air-quality]
+      summary: Get the AirGrid dashboard summary
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AirQualitySummary"
+  /air-quality/stations:
+    get:
+      operationId: listStations
+      tags: [air-quality]
+      summary: List monitoring stations
+      responses:
+        "200":
+          description: Monitoring stations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Station"
+  /air-quality/stations/{stationId}:
+    get:
+      operationId: getStation
+      tags: [air-quality]
+      summary: Get a monitoring station and recent readings
+      parameters:
+        - name: stationId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Station detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StationDetail"
+        "404":
+          description: Station not found
+  /air-quality/measurements:
+    get:
+      operationId: listMeasurements
+      tags: [air-quality]
+      summary: List measured station readings
+      parameters:
+        - name: pollutant
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [PM25, PM10, NO2, O3]
+            default: PM25
+      responses:
+        "200":
+          description: Measurements
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Measurement"
+  /air-quality/predictions/grid:
+    get:
+      operationId: getPredictionGrid
+      tags: [air-quality]
+      summary: Get the precomputed IDW estimate grid
+      parameters:
+        - name: pollutant
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [PM25, PM10, NO2, O3]
+            default: PM25
+      responses:
+        "200":
+          description: Prediction grid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PredictionGrid"
+  /air-quality/hotspots:
+    get:
+      operationId: listHotspots
+      tags: [air-quality]
+      summary: List detected pollution hotspots
+      responses:
+        "200":
+          description: Hotspots
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Hotspot"
+  /air-quality/history:
+    get:
+      operationId: listHistoricalMeasurements
+      tags: [air-quality]
+      summary: List deterministic hourly demo history
+      parameters:
+        - name: stationId
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Seven days of hourly historical demo measurements
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HistoricalMeasurement"
+  /validation:
+    get:
+      operationId: getValidationStatus
+      tags: [validation]
+      summary: Get real historical validation status
+      responses:
+        "200":
+          description: Validation status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationStatus"
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+    Pollutant:
+      type: string
+      enum: [PM25, PM10, NO2, O3]
+    Station:
+      type: object
+      required: [id, name, area, latitude, longitude, status, lastUpdated, pm25, pm10, no2, o3, dataQualityScore]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        area: { type: string }
+        latitude: { type: number }
+        longitude: { type: number }
+        status: { type: string, enum: [active, delayed] }
+        lastUpdated: { type: string }
+        pm25: { type: number }
+        pm10: { type: number }
+        no2: { type: number }
+        o3: { type: number }
+        dataQualityScore: { type: number, minimum: 0, maximum: 100 }
+    Measurement:
+      type: object
+      required: [stationId, timestamp, pollutant, value, unit, source]
+      properties:
+        stationId: { type: string }
+        timestamp: { type: string }
+        pollutant: { $ref: "#/components/schemas/Pollutant" }
+        value: { type: number }
+        unit: { type: string }
+        source: { type: string, enum: [measured] }
+    StationDetail:
+      type: object
+      required: [station, recentMeasurements]
+      properties:
+        station: { $ref: "#/components/schemas/Station" }
+        recentMeasurements:
+          type: array
+          items: { $ref: "#/components/schemas/Measurement" }
+    GridCell:
+      type: object
+      required: [latitude, longitude, value, dataQualityScore]
+      properties:
+        latitude: { type: number }
+        longitude: { type: number }
+        value: { type: number }
+        dataQualityScore: { type: number, minimum: 0, maximum: 100 }
+    PredictionGrid:
+      type: object
+      required: [pollutant, unit, method, cells, generatedAt]
+      properties:
+        pollutant: { $ref: "#/components/schemas/Pollutant" }
+        unit: { type: string }
+        method: { type: string, enum: [idw] }
+        cells:
+          type: array
+          items: { $ref: "#/components/schemas/GridCell" }
+        generatedAt: { type: string }
+    Hotspot:
+      type: object
+      required: [id, area, latitude, longitude, pollutant, value, baseline, kind, severity, detectedAt]
+      properties:
+        id: { type: string }
+        area: { type: string }
+        latitude: { type: number }
+        longitude: { type: number }
+        pollutant: { $ref: "#/components/schemas/Pollutant" }
+        value: { type: number }
+        baseline: { type: number }
+        kind: { type: string, enum: [spike, persistent] }
+        severity: { type: string, enum: [elevated, high, critical] }
+        detectedAt: { type: string }
+    AirQualitySummary:
+      type: object
+      required: [city, provider, providerLabel, stationCount, measuredCount, estimatedCellCount, hotspotCount, averagePm25, maxPm25, updatedAt, hotspots, positioningStatement]
+      properties:
+        city: { type: string }
+        provider: { type: string, enum: [demo] }
+        providerLabel: { type: string }
+        stationCount: { type: number }
+        measuredCount: { type: number }
+        estimatedCellCount: { type: number }
+        hotspotCount: { type: number }
+        averagePm25: { type: number }
+        maxPm25: { type: number }
+        updatedAt: { type: string }
+        hotspots:
+          type: array
+          items: { $ref: "#/components/schemas/Hotspot" }
+        positioningStatement: { type: string }
+    HistoricalMeasurement:
+      type: object
+      required: [stationId, timestamp, pm25, pm10, source]
+      properties:
+        stationId: { type: string }
+        timestamp: { type: string }
+        pm25: { type: number }
+        pm10: { type: number }
+        source: { type: string, enum: [demo] }
+    ValidationStatus:
+      type: object
+      required: [status, message, datasetLabel]
+      properties:
+        status: { type: string, enum: [not_loaded, loaded] }
+        message: { type: string }
+        datasetLabel: { type: string }
+        filename: { type: ["string", "null"] }
+        rowCount: { type: ["number", "null"] }
+        trainingRows: { type: ["number", "null"] }
+        validationRows: { type: ["number", "null"] }
+        mae: { type: ["number", "null"] }
+        rmse: { type: ["number", "null"] }
+        r2: { type: ["number", "null"] }
+

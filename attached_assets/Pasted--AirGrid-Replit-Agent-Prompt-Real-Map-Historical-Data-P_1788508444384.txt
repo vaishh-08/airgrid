@@ -1,0 +1,98 @@
+# AirGrid — Replit Agent Prompt: Real Map + Historical Data
+
+Paste this into the Replit Agent chat panel as one message. It covers three changes:
+1. Replace the placeholder map with a real, pannable/zoomable India-wide MapLibre map with search
+2. Add deterministic synthetic historical seeding (fixed seed, realistic diurnal pattern)
+3. Add a real-data loader for the validation page, kept separate from demo data
+
+---
+
+## PROMPT TO PASTE INTO REPLIT AGENT
+
+```
+Make three changes to the AirGrid project:
+
+## 1. Real interactive map (replace current map rendering)
+
+In the frontend map page component (find the file that renders the current
+map/heatmap — likely frontend/src/pages/Map.tsx or similar), replace the map
+rendering with a real MapLibre GL JS map:
+
+- Install maplibre-gl via npm in the frontend directory if not already present.
+- Import 'maplibre-gl/dist/maplibre-gl.css' in the app entry file.
+- Initialize the map using style URL "https://tiles.openfreemap.org/styles/dark"
+  (free, no API key required, matches our dark-first UI). Center on India:
+  [78.9629, 20.5937], zoom 4.2. Add maplibregl.NavigationControl for zoom buttons.
+- Add a search input above the map. On submit, geocode the query using
+  "https://photon.komoot.io/api/?q=<query>&limit=1" (free, no key required),
+  and call map.flyTo() to the first result's coordinates at zoom 11.
+- Re-attach our existing station markers, IDW heatmap layer, and hotspot layer
+  logic to this real map instance, inside a map.on('load', ...) handler, instead
+  of whatever placeholder/decorative background was rendering before.
+- If a user searches/zooms into a region with no seeded station data, show a
+  small overlay message "Outside demo coverage — showing nearest available
+  estimate" instead of rendering a fake heatmap for that area.
+
+## 2. Deterministic synthetic historical seed data
+
+Create backend/data/seed_historical.py (or extend the existing seed script)
+to generate 7 days of hourly historical PM2.5/PM10 data per demo station using
+a FIXED random seed (e.g. numpy.random.seed(42)) so the same "history" appears
+on every restart — not new random values each run.
+
+The generated pattern per day must follow a realistic diurnal shape, not flat
+noise:
+- gradual rise in the morning (traffic hours)
+- midday plateau or slight dip
+- evening rise (evening traffic/temperature inversion)
+- overnight decline
+
+Layer in occasional spikes (at least 2 across the 7-day set) and at least
+1 persistent elevated station, so hotspot detection has something real to find.
+
+Store this data with source = "demo" and ensure the frontend always labels it
+"Demo Monitoring Data" — never as official/CPCB/real-time.
+
+## 3. Real historical data loader for the validation page (separate from demo data)
+
+Create backend/data/validation_loader.py that loads a real historical air
+quality CSV (I will manually download a CPCB/data.gov.in or OpenAQ historical
+export and place it at backend/data/real_historical.csv — write the loader to
+expect columns roughly like: station, timestamp, pm25, pm10, but make the
+column-matching flexible/case-insensitive since I don't know the exact export
+format yet).
+
+This loader must:
+- Split the data chronologically: first ~80% of the date range = training
+  reference, last ~20% = held-out validation set. Do NOT validate against
+  the same data used to tune/fit the estimator.
+- Compute MAE, RMSE, and R² between the model's estimate and the actual
+  held-out values.
+- If backend/data/real_historical.csv does not exist, the /api/validation
+  endpoint must NOT crash — it should return a clear response indicating
+  "No real validation dataset loaded yet" rather than fabricating numbers
+  or falling back to synthetic data silently.
+- The validation page UI must display the dataset source clearly: either
+  "Prototype Validation — synthetic dataset" or "Validation — real historical
+  data (source: <filename/description>)" depending on which is active. Never
+  blend the two without labeling both clearly.
+
+After making these changes, confirm the map loads with real OpenStreetMap-based
+tiles across India, search flies to a city, historical seed data shows a
+realistic diurnal pattern (not flat noise) in the dashboard/forecast charts,
+and the validation page either shows real held-out metrics or an honest
+"no real dataset loaded" state — not fake numbers.
+```
+
+---
+
+## After Agent runs this
+
+**For the map:** it should just work — no manual steps needed since OpenFreeMap and Photon require no API keys.
+
+**For real validation data:** Agent can't fetch it for you (data.gov.in / CPCB downloads aren't reliably scriptable). You'll need to:
+1. Download a CSV manually from a source like [data.gov.in CPCB CAAQMS data](https://data.gov.in) or a Kaggle India air quality dataset.
+2. In Replit's file tree, upload it to `backend/data/real_historical.csv`.
+3. Reload the `/validation` page — it should pick it up automatically per the loader logic above.
+
+If the CSV's column names don't match what the loader expects, just tell Agent the actual column headers and ask it to adjust `validation_loader.py` — that's a small follow-up prompt, not a full rebuild.

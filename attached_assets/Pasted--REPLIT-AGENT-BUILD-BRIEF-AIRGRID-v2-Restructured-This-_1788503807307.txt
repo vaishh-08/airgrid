@@ -1,0 +1,200 @@
+# REPLIT AGENT BUILD BRIEF — AIRGRID (v2, Restructured)
+
+This version reorganizes the original brief around one rule: **build a small number of things that work convincingly, before touching anything that only looks impressive.** Every section below is tagged CORE, STRETCH, or CUT-FIRST so the agent (or a human) always knows what to sacrifice under time pressure.
+
+---
+
+## 1. APP OVERVIEW (unchanged in spirit)
+
+**AirGrid** is a geospatial intelligence prototype that turns sparse air-quality station data into a continuous, labeled pollution map — with clear separation between what was *measured*, what was *estimated*, and what was *forecast*.
+
+**Core problem:** monitoring stations are sparse; the space between them is invisible. AirGrid fills that space using nearby readings + weather + wind, and is explicit about how confident each fill-in is.
+
+**Hard scope constraint:** software only. No IoT/ESP32/STM32/MQTT/sensor firmware. Hardware appears only on the `/about` page as future scope, never as if implemented.
+
+**Positioning statement (keep this exact framing everywhere — dashboard, methodology, pitch):**
+> "AirGrid does not claim to know the real pollution level everywhere. It estimates it, tells you how confident it is, and always shows you which number is real."
+
+That sentence is the whole product. Everything else is in service of making it true and visible.
+
+---
+
+## 2. WHAT CHANGED AND WHY
+
+| Original brief | Problem | v2 fix |
+|---|---|---|
+| XGBoost as primary estimator | Not enough real data to train meaningfully; risks fake rigor | IDW is primary; XGBoost is optional stretch, trained on clearly-labeled synthetic data |
+| Per-cell switching between IDW/ML | Visible seams on the map | One estimation method per session/city, no per-cell switching |
+| "Prediction Confidence: 87%" | Implies statistical certainty it doesn't have | Renamed "Data Quality Score" everywhere in UI copy |
+| Validation metrics computed on same generator as training data | Circular, artificially good numbers | Explicit train/validation split using different synthetic seeds |
+| OpenAQ treated as a normal data source | v3 needs a key, rate-limits often | Demo provider is default and primary; OpenAQ is opportunistic only |
+| GeoPandas/Shapely required | GDAL build issues common on Replit | Plain NumPy/haversine math for all core distance/interpolation logic; GeoPandas optional and isolated |
+| 8 full pages, 13 components, full validation dashboard, methodology essay | Too much for hackathon time | 4 pages fully built, 3 pages minimal/static, 1 page cut unless time allows |
+| Health recommendations phrased directly | Liability/credibility risk if estimate is wrong | All recommendations conditioned on "if this estimate is accurate" + persistent disclaimer |
+| Wind-only movement arrows | Overstates physical accuracy | Explicit on-map caveat layer, not just buried in methodology text |
+| Unbounded animated overlays | Mobile/WebGL performance risk | Grid resolution capped by zoom level; animations disabled below a screen-width threshold |
+
+---
+
+## 3. BUILD TIERS
+
+### TIER 1 — CORE (must work, no exceptions)
+1. Dashboard (`/`)
+2. Map (`/map`) with measured / estimated / hotspot layers
+3. Spatial estimation via IDW (deterministic, always works)
+4. Measured vs AI-estimate vs Forecast labeling, visually distinct everywhere
+5. Location detail drawer
+6. Demo data provider (works with zero API keys)
+7. Basic hotspot detection (persistent + spike)
+
+### TIER 2 — STRETCH (build only after Tier 1 is fully working end-to-end)
+8. Forecast page with chart
+9. Pollution movement vectors (wind-based)
+10. Data Quality Score (renamed confidence)
+11. XGBoost estimator as an alternate mode, clearly labeled experimental
+12. Validation page with real train/test split
+13. OpenAQ live integration (optional, silent fallback to demo)
+14. Alert center, CSV export, share URL, dark/light toggle
+
+### TIER 3 — CUT FIRST under time pressure
+15. Methodology page → replace with a single static markdown/about section instead of a full designed page
+16. "Why is pollution high here" explanation card → reduce to 2–3 bullet factors, no separate component
+17. Monitoring gap detection as its own feature → fold into map legend as a single "low confidence" shading, not a dedicated system
+
+If time runs out, **Tier 1 fully working beats Tier 2 half-working beats Tier 3 at all.**
+
+---
+
+## 4. REVISED TECH STACK
+
+**Frontend:** React + TypeScript + Vite + Tailwind + shadcn/ui + Lucide + Recharts + MapLibre GL JS (unchanged — this stack is fine).
+
+**Backend:** Python 3.11 + FastAPI + Uvicorn + Pydantic + SQLAlchemy (unchanged).
+
+**Database:** SQLite (unchanged, structured for future Postgres migration).
+
+**Geospatial/math — changed:**
+- Use plain NumPy + haversine distance formulas for all Tier 1 features (nearest-station search, IDW, distance-based confidence).
+- GeoPandas/Shapely are **optional, isolated, Tier 2 only** — wrap all usage in a try/except so a failed install never blocks the app from booting. If GeoPandas fails to install on Replit, the app must run without it.
+
+**ML — changed:**
+- Tier 1 estimation: IDW only. No trained model required to demo the core product.
+- Tier 2 (optional): XGBoost trained on an explicitly larger synthetic dataset (90+ simulated days, not 24h–7d), validated against a *separate* synthetic seed. Label this mode "Experimental ML Estimate" in the UI, distinct from the standard IDW "AI Estimate" badge.
+- Hotspot detection: rolling-baseline threshold method (statistically simple, easy to explain, hard to get visibly wrong) — Isolation Forest is optional Tier 2 polish, not required.
+
+---
+
+## 5. PAGES (revised)
+
+| Route | Tier | Notes |
+|---|---|---|
+| `/` Dashboard | CORE | KPI cards, map preview, alerts, demo-mode badge |
+| `/map` | CORE | The centerpiece. Layer toggles: Measured, AI Estimate, Hotspots. Wind/Forecast layers are Tier 2. |
+| `/location/:id` | CORE | Drawer or full page — drawer preferred for speed |
+| `/forecast` | STRETCH | Only build after map + estimation are solid |
+| `/hotspots` | STRETCH | Can reuse map + a filtered list; don't over-build |
+| `/validation` | STRETCH | Only if the train/test split is genuinely separate — do not fake this page |
+| `/methodology` | CUT-FIRST | Static markdown block, not a designed page |
+| `/about` | CUT-FIRST | Same — one paragraph on current scope, one on future IoT, no elaborate diagrams needed |
+
+Drop `/methodology` and `/about` as separate routes if time is short — fold both into a single "About AirGrid" modal or footer link.
+
+---
+
+## 6. DATA PROVIDER ARCHITECTURE (revised priority)
+
+```
+AirQualityProvider (abstract)
+├── DemoProvider        ← DEFAULT, always available, built and tested FIRST
+├── OpenMeteoProvider   ← weather only, no key required, safe to integrate early
+└── OpenAQProvider      ← OPTIONAL, requires key, expect it to fail — never block on it
+```
+
+Rule: the app must be fully demoable with **zero external API calls succeeding.** Build and stress-test this path before adding any live integration. If OpenAQ or Open-Meteo fails, the UI shows a small "Demo Data" badge — it never shows an error screen.
+
+---
+
+## 7. AI / ESTIMATION LOGIC (revised)
+
+### Spatial estimation (Tier 1, required)
+```
+1. Find k nearest monitoring stations (haversine distance)
+2. weight = 1 / distance^2
+3. estimate = Σ(weight × station_value) / Σ(weight)
+4. data_quality_score = f(distance to nearest station, station count, data age)
+```
+No trained model needed. This must work for every point on the map, every time, with no external dependency.
+
+### Optional ML estimator (Tier 2)
+- Only enabled behind a toggle ("Experimental ML Estimate")
+- Trained on synthetic data explicitly generated for training (large, seeded)
+- Validated on a **different** synthetic seed — never validate against the training generator
+- If this isn't done properly, don't ship it — a broken/circular validation page is worse than no validation page
+
+### Hotspot detection (Tier 1, required)
+```
+spike:      current > rolling_baseline + threshold
+persistent: elevated reading + repeated occurrence + same region, over N windows
+```
+Simple, explainable, deterministic on demo data.
+
+### Pollution movement (Tier 2)
+- Wind vector from hotspot location only
+- **Mandatory on-map label:** "Predicted movement — not confirmed source tracking" rendered directly on the layer, not just in a methodology page nobody reads
+
+---
+
+## 8. LANGUAGE / LABELING RULES (apply everywhere, non-negotiable)
+
+- Never call demo data "official," "CPCB," or "real-time" if it isn't.
+- Rename "Prediction Confidence" → **"Data Quality Score"** across all UI, with one-line tooltip: "Based on proximity to stations and data recency — not a statistical guarantee."
+- Recommendations (if built) must use conditional language: "If this estimate holds, consider..." not directive claims.
+- Any validation numbers (MAE/RMSE/R²) must be computed on a held-out split, and the page must say **"Prototype Validation — synthetic dataset"** in the header, not buried in a footnote.
+
+---
+
+## 9. PERFORMANCE GUARDRAILS (new section)
+
+- Cap prediction grid resolution based on zoom level — don't render more cells than are visually distinguishable.
+- Disable animated hotspot pulses and wind arrows below a mobile viewport width threshold.
+- Precompute demo prediction grids at seed time; never compute IDW live for the full grid on every map pan.
+- Cache Open-Meteo responses; debounce location search input.
+
+---
+
+## 10. BUILD ORDER (replaces the original 26-step sequence)
+
+1. FastAPI skeleton + `/api/health` + CORS
+2. SQLite models + seed script with deterministic synthetic data (realistic diurnal pattern, fixed seed)
+3. DemoProvider fully working, returns clean JSON with no external calls
+4. Haversine + IDW estimation module (pure NumPy)
+5. `/api/stations`, `/api/measurements`, `/api/predictions/grid` endpoints
+6. React app shell + routing (`/`, `/map`, `/location/:id` only, to start)
+7. Dashboard page wired to real endpoints
+8. Map page: MapLibre + station markers + IDW heatmap layer + legend
+9. Location drawer
+10. Rolling-baseline hotspot detection + hotspot layer on map
+11. **Checkpoint: is Tier 1 fully working, end to end, with zero API keys?** Do not proceed until yes.
+12. Open-Meteo weather integration (optional layer)
+13. Forecast page (trend-based fallback first; ML forecast only if time allows)
+14. OpenAQ integration attempt, with visible fallback behavior tested
+15. Wind/movement layer with on-map caveat label
+16. Validation page — only with a real train/test split
+17. Polish: loading/error states, responsive check, demo-mode badge, dark mode default
+
+---
+
+## 11. DEFINITION OF DONE (replaces the 15-point final checklist)
+
+A successful prototype means, in order of importance:
+
+1. Loads with zero configured API keys, shows a working map with demo data.
+2. Every value on screen is labeled MEASURED / AI ESTIMATE / FORECAST, visually distinct without reading text.
+3. Clicking any station or map point opens a working detail view.
+4. Hotspots are detected and shown, using logic that's explainable in one sentence.
+5. No page crashes if an external API fails or a key is missing.
+6. Nothing on screen claims to be official, real-time, or statistically certain when it is demo/synthetic/heuristic.
+7. Mobile layout doesn't break the map.
+8. (If built) validation numbers come from a real held-out split, not the training generator.
+
+Everything past #8 is bonus, not requirement.

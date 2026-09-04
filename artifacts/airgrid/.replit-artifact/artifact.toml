@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "AirGrid"
+description = "A geospatial intelligence prototype that turns sparse air-quality station data into a transparent pollution map, distinguishing measured readings from AI estimates and forecasts."
+version = "1.0.0"
+id = "artifacts/airgrid"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19454
+
+[services.development]
+run = "pnpm --filter @workspace/airgrid run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/airgrid", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/airgrid/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19454"
+BASE_PATH = "/"

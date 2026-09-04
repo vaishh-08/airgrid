@@ -1,0 +1,80 @@
+# AirGrid — Replit Agent Prompt: Live Data Tab + Kochi Coverage
+
+Paste this into Replit Agent as one message.
+
+---
+
+```
+Make two additions to the AirGrid project:
+
+## 1. New "Live Data" tab/route
+
+Add a new nav item and route, e.g. /live, labeled "Live Data" in the sidebar
+(place it near "Overview" and "Map workspace" in the existing nav list).
+
+This page should show real-time values pulled directly from external APIs
+(not the seeded demo dataset), specifically:
+
+- Current weather + wind (temperature, humidity, wind speed, wind direction)
+  from Open-Meteo: https://api.open-meteo.com/v1/forecast
+  (params: latitude, longitude, current=temperature_2m,relative_humidity_2m,
+  wind_speed_10m,wind_direction_10m)
+- Current air quality from Open-Meteo's air quality endpoint as a modelled
+  supplementary source: https://air-quality-api.open-meteo.com/v1/air-quality
+  (params: latitude, longitude, hourly=pm10,pm2_5,carbon_monoxide,
+  nitrogen_dioxide,sulphur_dioxide,ozone)
+- If OPENAQ_API_KEY is configured, also attempt a live OpenAQ station lookup
+  for the selected city and show it as a separate, clearly labeled source.
+
+Design requirements for this page:
+- A city selector at the top (reuse the existing city list: Kochi, Ernakulam,
+  Bengaluru, Delhi, Mumbai — plus any others already in the app).
+- Each value card must show its source explicitly, e.g. "Open-Meteo (modelled)"
+  or "OpenAQ (measured station)" — do not blend sources into one number without
+  labeling which is which.
+- Show a "Last updated: X minutes ago" timestamp on the page, and auto-refresh
+  the data every 5 minutes (or on manual refresh button click).
+- If an external API call fails, show a clear inline error state for that
+  specific card ("Live data unavailable — showing last successful fetch" or
+  similar) — never crash the page or silently show stale data without saying so.
+- This tab is explicitly about calling external APIs live, in contrast to the
+  Overview/Map/Hotspots pages which are powered by demo + estimation data —
+  make that distinction clear in the page's subtitle/intro text, something like
+  "Live values fetched directly from external weather and air-quality APIs,
+  independent of the estimation engine."
+
+## 2. Add Kochi to the map and city list
+
+Ensure Kochi is fully represented everywhere the other demo cities appear:
+
+- Add Kochi as a city option in any city/location search or selector
+  (dashboard, map, live data tab, forecast page).
+- Seed at least 4-6 demo monitoring stations around Kochi/Ernakulam using
+  the station names already specified in the original brief: Kochi Central,
+  Kalamassery, Edappally, Vyttila, Aluva, Tripunithura, Fort Kochi, Kakkanad.
+  Use approximate real coordinates for these Kochi-area locations.
+- Generate the same style of realistic 7-day historical demo data for these
+  Kochi stations as exists for the other demo cities (diurnal pattern, fixed
+  seed, at least one spike or persistent hotspot in the Kochi area so hotspot
+  detection has something to find there too).
+- On the map, ensure selecting/searching "Kochi" flies the view to the Kochi
+  region (approx coordinates: latitude 9.9312, longitude 76.2673) at a
+  reasonable city-level zoom (around 11-12).
+- Confirm the IDW estimation grid and hotspot detection run correctly for
+  the Kochi region using this new station data, the same way they do for
+  Delhi NCR.
+
+After making these changes, confirm: the new Live Data tab loads real values
+from Open-Meteo (and OpenAQ if configured) for a selected city with clear
+source labeling and a working refresh, and that Kochi appears as a fully
+functional city option across search, map, dashboard, and stations — not
+just added to a dropdown with no backing data.
+```
+
+---
+
+## Notes
+
+- The Live Data tab intentionally does **not** touch your existing IDW/hotspot/forecast pipeline — it's a separate, simpler "raw API passthrough" view. Keeping it separate avoids destabilizing the estimation logic you already have working.
+- Open-Meteo needs no API key for either endpoint, so this tab will work immediately with zero config. OpenAQ live lookups will only activate if you've set `OPENAQ_API_KEY` — otherwise that specific card should just say "OpenAQ not configured" rather than erroring.
+- If Agent asks for exact Kochi-area station coordinates, these are close enough for demo purposes: Kochi Central ~9.9816, 76.2999; Kalamassery ~10.0518, 76.3315; Edappally ~10.0261, 76.3086; Vyttila ~9.9678, 76.3184; Aluva ~10.1076, 76.3517; Tripunithura ~9.9447, 76.3489; Fort Kochi ~9.9646, 76.2424; Kakkanad ~10.0159, 76.3419.
