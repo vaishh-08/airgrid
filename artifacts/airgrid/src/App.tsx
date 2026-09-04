@@ -1,4 +1,4 @@
-import { type ReactNode, useMemo, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Link, Route, Switch, useLocation, useParams, Router as WouterRouter } from 'wouter';
 import { Activity, AlertTriangle, ArrowDownRight, ArrowUpRight, BarChart3, ChevronRight, CircleHelp, Clock3, Cloud, Crosshair, Database, ExternalLink, Layers3, Map as MapIcon, Menu, Minus, Radio, RefreshCw, ScanLine, ShieldCheck, SlidersHorizontal, Sparkles, Target, X } from 'lucide-react';
@@ -89,6 +89,7 @@ function AppMark() {
 const navItems = [
   { href: '/', label: 'Overview', icon: BarChart3 },
   { href: '/map', label: 'Map workspace', icon: MapIcon },
+  { href: '/live', label: 'Live Data', icon: Radio },
   { href: '/hotspots', label: 'Hotspots', icon: Target },
   { href: '/forecast', label: 'Prototype forecast', icon: Sparkles },
   { href: '/validation', label: 'Validation', icon: ShieldCheck },
@@ -97,6 +98,12 @@ const navItems = [
 function Shell({ children }: { children: ReactNode }) {
   const [location] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [dataMode, setDataMode] = useState<'live' | 'demo'>(() => window.localStorage.getItem('airgrid-data-mode') === 'live' ? 'live' : 'demo');
+  const changeDataMode = (mode: 'live' | 'demo') => {
+    window.localStorage.setItem('airgrid-data-mode', mode);
+    window.dispatchEvent(new CustomEvent('airgrid-data-mode', { detail: mode }));
+    setDataMode(mode);
+  };
   return (
     <div className="min-h-[100dvh] bg-background">
       <aside className={cx('fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col bg-sidebar px-5 py-5 transition-transform duration-300 md:translate-x-0', mobileOpen ? 'translate-x-0' : '-translate-x-full')} data-testid="navigation-sidebar">
@@ -106,6 +113,7 @@ function Shell({ children }: { children: ReactNode }) {
         <div className="mt-auto rounded-2xl border border-sidebar-border bg-sidebar-accent/60 p-3.5"><div className="flex items-center gap-2 text-xs font-bold text-sidebar-foreground"><span className="h-2 w-2 rounded-full bg-sidebar-primary shadow-[0_0_0_4px_hsl(var(--sidebar-primary)/.12)]" />Demo environment</div><p className="mt-2 text-[11px] leading-relaxed text-sidebar-foreground/50">Transparent by design. Every view separates observed readings from spatial estimates.</p></div>
       </aside>
       {mobileOpen && <button className="fixed inset-0 z-30 bg-sidebar/40 backdrop-blur-sm md:hidden" onClick={() => setMobileOpen(false)} aria-label="Close navigation" data-testid="button-overlay-menu" />}
+      <div className="fixed bottom-4 right-4 z-50 flex overflow-hidden rounded-xl border border-border/70 bg-card/85 p-1 shadow-xl backdrop-blur-md" data-testid="toggle-data-mode"><button onClick={() => changeDataMode('live')} className={cx('rounded-lg px-3 py-2 text-xs font-bold', dataMode === 'live' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground')} data-testid="button-mode-live">Live</button><button onClick={() => changeDataMode('demo')} className={cx('rounded-lg px-3 py-2 text-xs font-bold', dataMode === 'demo' ? 'bg-secondary text-foreground' : 'text-muted-foreground')} data-testid="button-mode-demo">Demo</button></div>
       <main className="md:pl-[248px]"><header className="sticky top-0 z-20 flex h-[72px] items-center justify-between border-b border-border/70 bg-background/90 px-5 backdrop-blur-md md:px-9"><div className="flex items-center gap-3"><button onClick={() => setMobileOpen(true)} className="rounded-lg border border-border bg-card p-2 md:hidden" data-testid="button-open-menu"><Menu className="h-5 w-5" /></button><div className="hidden items-center gap-2 text-xs text-muted-foreground sm:flex"><span className="font-mono text-foreground">IN / {location === '/' ? 'OVERVIEW' : location.slice(1).toUpperCase()}</span><ChevronRight className="h-3.5 w-3.5" /></div></div><div className="flex items-center gap-3"><div className="hidden items-center gap-2 text-xs text-muted-foreground lg:flex"><span className="h-1.5 w-1.5 rounded-full bg-primary" />Demo feed connected</div><div className="h-8 w-8 rounded-full border border-border bg-secondary p-1.5" title="AirGrid operator"><div className="flex h-full w-full items-center justify-center rounded-full bg-primary text-[10px] font-extrabold text-primary-foreground">AG</div></div></div></header>{children}</main>
     </div>
   );
@@ -117,6 +125,61 @@ function PageTitle({ eyebrow, title, description, action }: { eyebrow: string; t
 
 function MetricCard({ label, value, unit, detail, icon: Icon, tone = 'default' }: { label: string; value: string | number; unit?: string; detail?: string; icon: typeof Activity; tone?: 'default' | 'warn' | 'hot' }) {
   return <div className="rounded-2xl border border-card-border bg-card p-5 shadow-sm animate-in" data-testid={`metric-${label.toLowerCase().replaceAll(' ', '-')}`}><div className="flex items-start justify-between"><div className="flex h-9 w-9 items-center justify-center rounded-xl bg-secondary text-primary"><Icon className="h-[18px] w-[18px]" /></div>{tone === 'hot' ? <span className="rounded-md bg-destructive/10 px-2 py-1 font-mono text-[10px] font-medium uppercase tracking-wider text-destructive">attention</span> : tone === 'warn' ? <span className="rounded-md bg-accent/25 px-2 py-1 font-mono text-[10px] font-medium uppercase tracking-wider text-foreground">watch</span> : <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">today</span>}</div><p className="mt-5 text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">{label}</p><p className="mt-1 text-3xl font-extrabold tracking-[-0.05em] text-foreground">{value}{unit && <span className="ml-1 text-base font-semibold tracking-normal text-muted-foreground">{unit}</span>}</p>{detail && <p className="mt-2 text-xs text-muted-foreground">{detail}</p>}</div>;
+}
+
+type LivePayload = {
+  fetchedAt: string;
+  weather: { value?: { current?: Record<string, number> }; error?: string };
+  air: { value?: { hourly?: Record<string, Array<number | string>> }; error?: string };
+  openAq?: { value?: { results?: Array<{ name?: string; locality?: string; country?: { name?: string } }> }; error?: string; unavailable?: string };
+};
+
+const LIVE_CITIES = ['Kochi', 'Ernakulam', 'Bengaluru', 'Delhi', 'Mumbai'];
+
+function minutesAgo(value?: string) {
+  if (!value) return '—';
+  return `${Math.max(0, Math.floor((Date.now() - Date.parse(value)) / 60000))} minutes ago`;
+}
+
+function LiveData() {
+  const [city, setCity] = useState('Kochi');
+  const [data, setData] = useState<LivePayload | null>(null);
+  const [lastGood, setLastGood] = useState<LivePayload | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [requestError, setRequestError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true); setRequestError(null);
+    try {
+      const response = await fetch(`/api/live-data?city=${encodeURIComponent(city)}`);
+      if (!response.ok) throw new Error(`service returned ${response.status}`);
+      const next = await response.json() as LivePayload;
+      setData(next);
+      if (next.weather.value || next.air.value) setLastGood(next);
+    } catch (error) {
+      setRequestError(error instanceof Error ? error.message : 'Live data request failed');
+    } finally { setLoading(false); }
+  }, [city]);
+
+  useEffect(() => { void refresh(); const timer = window.setInterval(() => void refresh(), 5 * 60 * 1000); return () => window.clearInterval(timer); }, [refresh]);
+  const shown = data ?? lastGood;
+  const weather = shown?.weather.value?.current;
+  const hourly = shown?.air.value?.hourly;
+  const airIndex = Math.max(0, (hourly?.time ?? []).findIndex(time => String(time).slice(0, 13) === new Date().toISOString().slice(0, 13)));
+  const airValue = (key: string) => hourly?.[key]?.[airIndex] ?? '—';
+  const sourceError = (kind: 'weather' | 'air') => data?.[kind].error ?? (!data ? requestError : null);
+  const cardError = (error?: string | null) => error ? <p className="mt-3 border-t border-destructive/20 pt-3 text-xs font-semibold text-destructive">Live data unavailable — {lastGood ? 'showing last successful fetch.' : 'no successful fetch yet.'}</p> : null;
+  const weatherCards: Array<[string, string, string]> = [
+    ['Temperature', String(weather?.temperature_2m ?? '—'), '°C'], ['Humidity', String(weather?.relative_humidity_2m ?? '—'), '%'], ['Wind speed', String(weather?.wind_speed_10m ?? '—'), 'km/h'], ['Wind direction', String(weather?.wind_direction_10m ?? '—'), '°'],
+  ];
+  const airCards: Array<[string, string | number, string]> = [['PM2.5', airValue('pm2_5'), 'µg/m³'], ['PM10', airValue('pm10'), 'µg/m³'], ['NO₂', airValue('nitrogen_dioxide'), 'µg/m³'], ['Ozone', airValue('ozone'), 'µg/m³'], ['CO', airValue('carbon_monoxide'), 'µg/m³'], ['SO₂', airValue('sulphur_dioxide'), 'µg/m³']];
+  return <div className="mx-auto max-w-7xl p-5 md:p-9"><PageTitle eyebrow="External live feeds" title="Live Data" description="Live values fetched directly from external weather and air-quality APIs, independent of the estimation engine and demo monitoring dataset." action={<div className="flex items-center gap-2"><label className="rounded-xl border border-border bg-card px-3 py-2 text-sm font-semibold">City <select value={city} onChange={e => setCity(e.target.value)} className="ml-2 bg-transparent outline-none" data-testid="select-live-city">{LIVE_CITIES.map(option => <option key={option}>{option}</option>)}</select></label><button onClick={() => void refresh()} disabled={loading} className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-60" data-testid="button-refresh-live"><RefreshCw className={cx('h-4 w-4', loading && 'animate-spin')} />Refresh</button></div>} />
+    <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm"><span><span className="font-bold">Selected city:</span> {city}</span><span className="font-mono text-xs text-muted-foreground">Last updated: {minutesAgo(shown?.fetchedAt)}</span></div>
+    {requestError && <div className="mb-6 rounded-xl border border-destructive/25 bg-destructive/5 px-4 py-3 text-sm text-destructive">Live data request failed — {lastGood ? 'showing the last successful fetch.' : 'try refresh.'}</div>}
+    <section><div className="mb-4"><h2 className="text-lg font-extrabold">Current weather and wind</h2><p className="mt-1 text-xs text-muted-foreground">Source: Open-Meteo (modelled)</p></div><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{weatherCards.map(([label, value, unit]) => <div key={label} className="rounded-2xl border border-card-border bg-card p-5 shadow-sm"><p className="text-xs font-bold text-muted-foreground">{label}</p><p className="mt-3 text-3xl font-extrabold">{value} <span className="text-sm text-muted-foreground">{unit}</span></p><p className="mt-3 text-[11px] font-bold uppercase tracking-wide text-primary">Open-Meteo (modelled)</p>{cardError(sourceError('weather'))}</div>)}</div></section>
+    <section className="mt-8"><div className="mb-4"><h2 className="text-lg font-extrabold">Current air quality</h2><p className="mt-1 text-xs text-muted-foreground">Modelled supplementary source, distinct from station measurements.</p></div><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{airCards.map(([label, value, unit]) => <div key={label} className="rounded-2xl border border-card-border bg-card p-5 shadow-sm"><p className="text-xs font-bold text-muted-foreground">{label}</p><p className="mt-3 text-3xl font-extrabold">{value} <span className="text-sm text-muted-foreground">{unit}</span></p><p className="mt-3 text-[11px] font-bold uppercase tracking-wide text-primary">Open-Meteo (modelled)</p>{cardError(sourceError('air'))}</div>)}</div></section>
+    <section className="mt-8 rounded-2xl border border-card-border bg-card p-5 shadow-sm"><h2 className="text-lg font-extrabold">OpenAQ station lookup</h2>{shown?.openAq?.value?.results?.[0] ? <><p className="mt-2 text-sm font-bold">{shown.openAq.value.results[0].name ?? shown.openAq.value.results[0].locality ?? 'Nearby station'}</p><p className="mt-2 text-xs font-bold uppercase tracking-wide text-primary">OpenAQ (measured station)</p></> : <p className="mt-2 text-sm text-muted-foreground">{shown?.openAq?.unavailable ?? (shown?.openAq?.error ? 'Live data unavailable — showing last successful fetch when available.' : 'No matching OpenAQ station was returned for this city.')}</p>}</section>
+  </div>;
 }
 
 function MiniMap({ stations, hotspots, cells, interactive = false }: { stations: Station[]; hotspots: Hotspot[]; cells: Array<{ latitude: number; longitude: number; value: number; dataQualityScore: number }>; interactive?: boolean }) {
@@ -145,10 +208,68 @@ function useAirData() {
   return { summary: summaryQuery.data, stations: stationQuery.data ?? [], hotspots: hotspotQuery.data ?? [], measurements: measurementQuery.data ?? [], grid: gridQuery.data, health: healthQuery.data, isLoading: summaryQuery.isLoading || stationQuery.isLoading || hotspotQuery.isLoading, isError: summaryQuery.isError || stationQuery.isError || hotspotQuery.isError, retry: () => { void summaryQuery.refetch(); void stationQuery.refetch(); void hotspotQuery.refetch(); } };
 }
 
-function Overview() {
+function OverviewLegacy() {
   const { summary, stations, hotspots, measurements, grid, isLoading, isError, retry } = useAirData();
   if (isError) return <div className="mx-auto max-w-7xl p-5 md:p-9"><ErrorState onRetry={retry} /></div>;
   return <div className="mx-auto max-w-7xl p-5 md:p-9"><PageTitle eyebrow="Operations overview" title={summary?.city ? `${summary.city}, in focus` : 'City air-quality overview'} description="A transparent read on what the network measured, what the surface estimates, and where teams may want to look next." action={<div className="flex flex-wrap items-center gap-2"><span className="rounded-xl border border-primary/25 bg-primary/10 px-3 py-2 text-xs font-bold text-primary">Demo Monitoring Data</span><Link href="/map" className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground shadow-sm hover-elevate" data-testid="link-open-map"><MapIcon className="h-4 w-4" />Open map workspace</Link></div>} />{isLoading ? <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"><Skeleton className="h-40" /><Skeleton className="h-40" /><Skeleton className="h-40" /><Skeleton className="h-40" /></div> : <><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"><MetricCard label="Average PM2.5" value={summary?.averagePm25 ?? '—'} unit="µg/m³" detail="Across measured stations" icon={Activity} tone={(summary?.averagePm25 ?? 0) > 60 ? 'warn' : 'default'} /><MetricCard label="Peak PM2.5" value={summary?.maxPm25 ?? '—'} unit="µg/m³" detail="Highest measured reading" icon={ArrowUpRight} tone="hot" /><MetricCard label="Measured stations" value={summary?.measuredCount ?? '—'} detail={`${summary?.stationCount ?? '—'} stations in network`} icon={Radio} /><MetricCard label="Detected hotspots" value={summary?.hotspotCount ?? '—'} detail="Spike + persistent signals" icon={Target} tone={(summary?.hotspotCount ?? 0) > 0 ? 'warn' : 'default'} /></div><div className="mt-6 grid gap-6 xl:grid-cols-[1.5fr_1fr]"><section className="rounded-2xl border border-card-border bg-card p-5 shadow-sm md:p-6"><div className="mb-5 flex items-start justify-between"><div><div className="flex items-center gap-2"><h2 className="text-base font-extrabold tracking-tight">City surface</h2><SourceBadge source="estimated" /></div><p className="mt-1 text-xs text-muted-foreground">IDW estimate cells are shown as a separate layer from stations.</p></div><Link href="/map" className="flex items-center gap-1 text-xs font-bold text-primary" data-testid="link-view-full-map">View full map <ChevronRight className="h-3.5 w-3.5" /></Link></div><MiniMap stations={stations} hotspots={hotspots} cells={grid?.cells ?? []} /></section><section className="rounded-2xl border border-card-border bg-card p-5 shadow-sm md:p-6"><div className="mb-5 flex items-center justify-between"><div><h2 className="text-base font-extrabold tracking-tight">Signals to review</h2><p className="mt-1 text-xs text-muted-foreground">Detected from available measured data</p></div><Link href="/hotspots" className="text-xs font-bold text-primary" data-testid="link-all-hotspots">See all</Link></div>{hotspots.length ? <div className="space-y-3">{hotspots.slice(0, 4).map(h => <HotspotRow hotspot={h} key={h.id} />)}</div> : <EmptyState icon={ShieldCheck} title="No hotspots detected" description="No spike or persistent signals in the current demo window." />}</section></div><div className="mt-6 grid gap-6 xl:grid-cols-[1.2fr_.8fr]"><section className="rounded-2xl border border-card-border bg-card p-5 shadow-sm md:p-6"><div className="mb-5 flex items-center justify-between"><div><h2 className="text-base font-extrabold tracking-tight">Recent measured activity</h2><p className="mt-1 text-xs text-muted-foreground">Demo Monitoring Data · latest station readings · source retained</p></div><Clock3 className="h-4 w-4 text-muted-foreground" /></div><MeasurementTable measurements={measurements.slice(0, 6)} stations={stations} /></section><section className="rounded-2xl border border-card-border bg-card p-5 shadow-sm md:p-6"><div className="flex items-center gap-2"><Database className="h-4 w-4 text-primary" /><h2 className="text-base font-extrabold tracking-tight">Data posture</h2></div><div className="mt-5 space-y-5"><div><div className="mb-2 flex justify-between text-xs"><span className="text-muted-foreground">Measured network</span><span className="font-mono font-medium">{summary?.measuredCount ?? 0} / {summary?.stationCount ?? 0}</span></div><div className="h-2 rounded-full bg-secondary"><div className="h-full rounded-full bg-primary" style={{ width: `${summary?.stationCount ? ((summary.measuredCount / summary.stationCount) * 100) : 0}%` }} /></div></div><div><div className="mb-2 flex justify-between text-xs"><span className="text-muted-foreground">Estimated cells</span><span className="font-mono font-medium">{summary?.estimatedCellCount ?? grid?.cells.length ?? 0}</span></div><div className="flex h-11 items-center justify-between rounded-xl bg-secondary px-3"><span className="text-xs font-semibold">IDW interpolation</span><span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">not measured</span></div></div><p className="border-l-2 border-accent pl-3 text-xs leading-relaxed text-muted-foreground">Use estimates to explore spatial patterns, not as a replacement for a station reading.</p></div></section></div></>}</div>;
+}
+
+function OverviewDemo() {
+  const { stations, hotspots, measurements, grid, isLoading, isError, retry } = useAirData();
+  const [city, setCity] = useState<'Delhi NCR' | 'Kochi'>('Delhi NCR');
+  const [liveAir, setLiveAir] = useState<LivePayload | null>(null);
+  const [liveError, setLiveError] = useState(false);
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/live-data?city=${city === 'Kochi' ? 'Kochi' : 'Delhi'}`).then(response => {
+      if (!response.ok) throw new Error('Live request failed');
+      return response.json() as Promise<LivePayload>;
+    }).then(payload => { if (active) { setLiveAir(payload); setLiveError(false); } }).catch(() => { if (active) setLiveError(true); });
+    return () => { active = false; };
+  }, [city]);
+  const isKochi = city === 'Kochi';
+  const cityStations = stations.filter(station => isKochi ? station.latitude < 15 : station.latitude > 20);
+  const stationIds = new Set(cityStations.map(station => station.id));
+  const cityHotspots = hotspots.filter(hotspot => isKochi ? hotspot.latitude < 15 : hotspot.latitude > 20);
+  const cityMeasurements = measurements.filter(measurement => stationIds.has(measurement.stationId));
+  const cityCells = (grid?.cells ?? []).filter(cell => isKochi ? cell.latitude < 15 : cell.latitude > 20);
+  const average = cityStations.length ? (cityStations.reduce((total, station) => total + station.pm25, 0) / cityStations.length).toFixed(1) : '—';
+  const peak = cityStations.length ? Math.max(...cityStations.map(station => station.pm25)) : '—';
+  const airHourly = liveAir?.air.value?.hourly;
+  const currentHour = Math.max(0, (airHourly?.time ?? []).findIndex(time => String(time).slice(0, 13) === new Date().toISOString().slice(0, 13)));
+  const livePm25 = airHourly?.pm2_5?.[currentHour] ?? '—';
+  const livePm10 = airHourly?.pm10?.[currentHour] ?? '—';
+  if (isError) return <div className="mx-auto max-w-7xl p-5 md:p-9"><ErrorState onRetry={retry} /></div>;
+  return <div className="mx-auto max-w-7xl p-5 md:p-9">
+    <PageTitle eyebrow="Operations overview" title={`${city}, in focus`} description="Demo monitoring data and IDW estimates for the selected city." action={<div className="flex flex-wrap items-center gap-2"><label className="rounded-xl border border-border bg-card px-3 py-2 text-sm font-bold">City <select value={city} onChange={event => setCity(event.target.value as 'Delhi NCR' | 'Kochi')} className="ml-2 bg-transparent outline-none" data-testid="select-overview-city"><option>Delhi NCR</option><option>Kochi</option></select></label><Link href="/map" className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground"><MapIcon className="h-4 w-4" />Open map</Link></div>} />
+    {isLoading ? <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"><Skeleton className="h-40" /><Skeleton className="h-40" /><Skeleton className="h-40" /><Skeleton className="h-40" /></div> : <><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"><MetricCard label="Average PM2.5" value={average} unit="µg/m³" detail={`Across ${city} stations`} icon={Activity} tone={Number(average) > 60 ? 'warn' : 'default'} /><MetricCard label="Peak PM2.5" value={peak} unit="µg/m³" detail="Highest measured reading" icon={ArrowUpRight} tone="hot" /><MetricCard label="Measured stations" value={cityStations.length} detail={`${city} demo network`} icon={Radio} /><MetricCard label="Detected hotspots" value={cityHotspots.length} detail="Spike + persistent signals" icon={Target} tone={cityHotspots.length ? 'warn' : 'default'} /></div><div className="mt-6 grid gap-6 xl:grid-cols-[1.5fr_1fr]"><section className="rounded-2xl border border-card-border bg-card p-5 shadow-sm"><div className="mb-5 flex items-start justify-between"><div><h2 className="text-base font-extrabold">{city} surface</h2><p className="mt-1 text-xs text-muted-foreground">IDW estimate cells are kept separate from station readings.</p></div><SourceBadge source="estimated" /></div><MiniMap stations={cityStations} hotspots={cityHotspots} cells={cityCells} /></section><section className="rounded-2xl border border-card-border bg-card p-5 shadow-sm"><h2 className="text-base font-extrabold">Signals to review</h2><div className="mt-5 space-y-3">{cityHotspots.length ? cityHotspots.map(hotspot => <HotspotRow hotspot={hotspot} key={hotspot.id} />) : <EmptyState icon={ShieldCheck} title="No hotspots detected" description="No current demo signal in this city." />}</div></section></div><section className="mt-6 rounded-2xl border border-card-border bg-card p-5 shadow-sm"><h2 className="text-base font-extrabold">Recent measured activity · {city}</h2><div className="mt-5"><MeasurementTable measurements={cityMeasurements.slice(0, 6)} stations={cityStations} /></div></section></>}</div>;
+}
+
+function Overview() {
+  const { stations, hotspots, measurements, grid, isLoading, isError, retry } = useAirData();
+  const [city, setCity] = useState<'Delhi NCR' | 'Kochi'>('Delhi NCR');
+  const [liveAir, setLiveAir] = useState<LivePayload | null>(null);
+  const [liveError, setLiveError] = useState(false);
+  const isKochi = city === 'Kochi';
+  const cityStations = stations.filter(station => isKochi ? station.latitude < 15 : station.latitude > 20);
+  const stationIds = new Set(cityStations.map(station => station.id));
+  const cityHotspots = hotspots.filter(hotspot => isKochi ? hotspot.latitude < 15 : hotspot.latitude > 20);
+  const cityMeasurements = measurements.filter(measurement => stationIds.has(measurement.stationId));
+  const cityCells = (grid?.cells ?? []).filter(cell => isKochi ? cell.latitude < 15 : cell.latitude > 20);
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/live-data?city=${isKochi ? 'Kochi' : 'Delhi'}`).then(response => {
+      if (!response.ok) throw new Error('Live request failed');
+      return response.json() as Promise<LivePayload>;
+    }).then(payload => { if (active) { setLiveAir(payload); setLiveError(false); } }).catch(() => { if (active) setLiveError(true); });
+    return () => { active = false; };
+  }, [isKochi]);
+  const hourly = liveAir?.air.value?.hourly;
+  const index = Math.max(0, (hourly?.time ?? []).findIndex(time => String(time).slice(0, 13) === new Date().toISOString().slice(0, 13)));
+  const pm25 = hourly?.pm2_5?.[index] ?? '—';
+  const pm10 = hourly?.pm10?.[index] ?? '—';
+  if (isError) return <div className="mx-auto max-w-7xl p-5 md:p-9"><ErrorState onRetry={retry} /></div>;
+  return <div className="mx-auto max-w-7xl p-5 md:p-9"><PageTitle eyebrow="Operations overview" title={`${city}, in focus`} description="Live API values are modelled and distinct from the demo monitoring and estimation layers below." action={<label className="rounded-xl border border-border bg-card px-3 py-2 text-sm font-bold">City <select value={city} onChange={event => setCity(event.target.value as 'Delhi NCR' | 'Kochi')} className="ml-2 bg-transparent outline-none" data-testid="select-overview-city"><option>Delhi NCR</option><option>Kochi</option></select></label>} />{isLoading ? <Skeleton className="h-40" /> : <><div className="mb-5 rounded-xl border border-primary/25 bg-primary/5 px-4 py-3 text-sm"><span className="font-bold">Current API values:</span> Open-Meteo modelled concentrations for {city}, not measured stations. {liveError && <span className="text-destructive">Live data unavailable — showing last successful fetch when available.</span>}</div><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"><MetricCard label="Live PM2.5" value={pm25} unit="µg/m³" detail="Open-Meteo · modelled" icon={Activity} /><MetricCard label="Live PM10" value={pm10} unit="µg/m³" detail="Open-Meteo · modelled" icon={Cloud} /><MetricCard label="Demo stations" value={cityStations.length} detail={`${city} seeded network`} icon={Radio} /><MetricCard label="Demo hotspots" value={cityHotspots.length} detail="Seeded signals" icon={Target} tone={cityHotspots.length ? 'warn' : 'default'} /></div><div className="mt-6 grid gap-6 xl:grid-cols-[1.5fr_1fr]"><section className="rounded-2xl border border-card-border bg-card p-5 shadow-sm"><h2 className="text-base font-extrabold">{city} demo surface</h2><p className="mt-1 text-xs text-muted-foreground">IDW estimate cells, station markers and hotspots are deterministic demo data.</p><div className="mt-5"><MiniMap stations={cityStations} hotspots={cityHotspots} cells={cityCells} /></div></section><section className="rounded-2xl border border-card-border bg-card p-5 shadow-sm"><h2 className="text-base font-extrabold">Demo signals</h2><div className="mt-5 space-y-3">{cityHotspots.length ? cityHotspots.map(hotspot => <HotspotRow hotspot={hotspot} key={hotspot.id} />) : <EmptyState icon={ShieldCheck} title="No demo hotspots" description="No seeded signals in this city." />}</div></section></div><section className="mt-6 rounded-2xl border border-card-border bg-card p-5 shadow-sm"><h2 className="text-base font-extrabold">Recent demo station readings</h2><div className="mt-5"><MeasurementTable measurements={cityMeasurements.slice(0, 6)} stations={cityStations} /></div></section></>}</div>;
 }
 
 function HotspotRow({ hotspot }: { hotspot: Hotspot }) {
@@ -238,7 +359,7 @@ function About() {
 
 function Router() {
   const [location] = useLocation();
-  return <ErrorBoundary resetKey={location}><Shell><Switch><Route path="/" component={Overview} /><Route path="/map" component={MapWorkspace} /><Route path="/location/:id" component={LocationDetail} /><Route path="/forecast" component={Forecast} /><Route path="/hotspots" component={Hotspots} /><Route path="/validation" component={Validation} /><Route path="/about" component={About} /><Route component={NotFound} /></Switch></Shell></ErrorBoundary>;
+  return <ErrorBoundary resetKey={location}><Shell><Switch><Route path="/" component={Overview} /><Route path="/map" component={MapWorkspace} /><Route path="/live" component={LiveData} /><Route path="/location/:id" component={LocationDetail} /><Route path="/forecast" component={Forecast} /><Route path="/hotspots" component={Hotspots} /><Route path="/validation" component={Validation} /><Route path="/about" component={About} /><Route component={NotFound} /></Switch></Shell></ErrorBoundary>;
 }
 
 function App() {

@@ -31,10 +31,11 @@ export function generateHistoricalMeasurements(
     for (let hour = 0; hour < 24; hour += 1) {
       for (const [stationIndex, station] of stations.entries()) {
         const persistentLift =
-          station.id === "stn-anand" ? 1.18 : station.id === "stn-noida" ? 1.08 : 1;
+          station.id === "stn-anand" ? 1.18 : station.id === "stn-noida" ? 1.08 : station.id === "stn-kakkanad" ? 1.22 : 1;
         const occasionalSpike =
           (day === 2 && hour === 8 && station.id === "stn-anand") ||
-          (day === 5 && hour === 19 && station.id === "stn-punjabi")
+          (day === 5 && hour === 19 && station.id === "stn-punjabi") ||
+          (day === 4 && hour === 18 && station.id === "stn-kakkanad")
             ? 1.42
             : 1;
         const factor =

@@ -13,11 +13,14 @@ type AirGridMapProps = {
   onStationSelect: (stationId: string) => void;
 };
 
-const DEMO_BOUNDS = {
-  minLat: 28.2,
-  maxLat: 28.85,
-  minLon: 76.7,
-  maxLon: 77.55,
+const DEMO_AREAS = [
+  { minLat: 28.2, maxLat: 28.85, minLon: 76.7, maxLon: 77.55 },
+  { minLat: 9.82, maxLat: 10.36, minLon: 76.12, maxLon: 76.68 },
+];
+const KNOWN_CITIES: Record<string, [number, number]> = {
+  kochi: [76.2673, 9.9312], ernakulam: [76.2999, 9.9816],
+  bengaluru: [77.5946, 12.9716], bangalore: [77.5946, 12.9716],
+  delhi: [77.209, 28.6139], mumbai: [72.8777, 19.076],
 };
 
 type PointFeature = {
@@ -31,13 +34,12 @@ type PointFeatureCollection = {
   features: PointFeature[];
 };
 
+type LiveMapCell = { latitude: number; longitude: number; pm25: number | null; pm10: number | null; windSpeed: number | null; windDirection: number | null; source: string };
+type LiveMapPayload = { fetchedAt: string; cells: LiveMapCell[]; errors: { air: boolean; weather: boolean } };
+type LiveStation = { id: number; name: string; latitude: number; longitude: number; provider: string; lastUpdated: string | null; source: string };
+
 function isCovered(latitude: number, longitude: number) {
-  return (
-    latitude >= DEMO_BOUNDS.minLat &&
-    latitude <= DEMO_BOUNDS.maxLat &&
-    longitude >= DEMO_BOUNDS.minLon &&
-    longitude <= DEMO_BOUNDS.maxLon
-  );
+  return DEMO_AREAS.some((area) => latitude >= area.minLat && latitude <= area.maxLat && longitude >= area.minLon && longitude <= area.maxLon);
 }
 
 function hasWebGlContext() {
@@ -65,6 +67,44 @@ export default function AirGridMap({
   const [searchError, setSearchError] = useState("");
   const [outsideCoverage, setOutsideCoverage] = useState(false);
   const [mapMode, setMapMode] = useState<"maplibre" | "leaflet">("maplibre");
+  const [satellite, setSatellite] = useState(false);
+  const [liveMap, setLiveMap] = useState<LiveMapPayload | null>(null);
+  const [showModel, setShowModel] = useState(true);
+  const [showWind, setShowWind] = useState(true);
+  const [liveMapError, setLiveMapError] = useState(false);
+  const [liveStations, setLiveStations] = useState<LiveStation[]>([]);
+  const [showRisk, setShowRisk] = useState(true);
+  const [caseStatus, setCaseStatus] = useState<'unassigned' | 'assigned' | 'verified' | 'actioned'>('unassigned');
+  const [liveOnly, setLiveOnly] = useState(() => window.localStorage.getItem("airgrid-data-mode") === "live");
+
+  useEffect(() => {
+    const onModeChange = (event: Event) => setLiveOnly((event as CustomEvent<"live" | "demo">).detail === "live");
+    window.addEventListener("airgrid-data-mode", onModeChange);
+    return () => window.removeEventListener("airgrid-data-mode", onModeChange);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/live-stations").then((response) => response.ok ? response.json() as Promise<{ stations?: LiveStation[] }> : Promise.reject()).then((payload) => { if (active) setLiveStations(payload.stations ?? []); }).catch(() => { if (active) setLiveStations([]); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const refresh = async () => {
+      try {
+        const response = await fetch("/api/live-map");
+        if (!response.ok) throw new Error("Live map unavailable");
+        const payload = await response.json() as LiveMapPayload;
+        if (active) { setLiveMap(payload); setLiveMapError(false); }
+      } catch {
+        if (active) setLiveMapError(true);
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 10 * 60 * 1000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, []);
 
   useEffect(() => {
     if (!mapContainer.current || mapRef.current) return;
@@ -203,6 +243,9 @@ export default function AirGridMap({
           },
         });
       }
+      map.setLayoutProperty("airgrid-estimate-cells", "visibility", liveOnly ? "none" : "visible");
+      map.setLayoutProperty("airgrid-station-points", "visibility", liveOnly ? "none" : "visible");
+      map.setLayoutProperty("airgrid-hotspot-points", "visibility", liveOnly ? "none" : "visible");
     };
 
     if (map.isStyleLoaded()) syncMapData();
@@ -210,7 +253,50 @@ export default function AirGridMap({
     return () => {
       map.off("load", syncMapData);
     };
-  }, [stations, hotspots, grid, onStationSelect]);
+  }, [stations, hotspots, grid, onStationSelect, liveOnly]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !liveMap) return;
+    const syncLiveLayers = () => {
+      const model: PointFeatureCollection = { type: "FeatureCollection", features: liveMap.cells.filter((cell) => cell.pm25 !== null).map((cell) => ({ type: "Feature", geometry: { type: "Point", coordinates: [cell.longitude, cell.latitude] }, properties: { pm25: cell.pm25 ?? 0, source: cell.source } })) };
+      const wind: PointFeatureCollection = { type: "FeatureCollection", features: liveMap.cells.filter((cell) => cell.windSpeed !== null && cell.windDirection !== null).map((cell) => ({ type: "Feature", geometry: { type: "Point", coordinates: [cell.longitude, cell.latitude] }, properties: { speed: cell.windSpeed ?? 0, direction: ((cell.windDirection ?? 0) + 180) % 360 } })) };
+      const upsert = (id: string, data: PointFeatureCollection) => {
+        const source = map.getSource(id) as maplibregl.GeoJSONSource | undefined;
+        if (source) source.setData(data as never); else map.addSource(id, { type: "geojson", data: data as never });
+      };
+      upsert("airgrid-live-model", model);
+      upsert("airgrid-wind", wind);
+      if (!map.getLayer("airgrid-live-model-cells")) map.addLayer({ id: "airgrid-live-model-cells", type: "circle", source: "airgrid-live-model", paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 22, 7, 42], "circle-blur": 0.75, "circle-opacity": 0.54, "circle-color": ["interpolate", ["linear"], ["get", "pm25"], 0, "#45d9a5", 15, "#e6c257", 35, "#ed855d", 60, "#d94b63"] } }, map.getLayer("airgrid-estimate-cells") ? "airgrid-estimate-cells" : undefined);
+      if (!map.getLayer("airgrid-wind-arrows")) map.addLayer({ id: "airgrid-wind-arrows", type: "symbol", source: "airgrid-wind", layout: { "text-field": "➜", "text-size": ["interpolate", ["linear"], ["zoom"], 4, 12, 8, 18], "text-rotate": ["get", "direction"], "text-rotation-alignment": "map", "text-keep-upright": false }, paint: { "text-color": "#f8f5ec", "text-halo-color": "#102c2b", "text-halo-width": 1.5, "text-opacity": 0.9 } });
+      map.setLayoutProperty("airgrid-live-model-cells", "visibility", showModel ? "visible" : "none");
+      map.setLayoutProperty("airgrid-wind-arrows", "visibility", showWind ? "visible" : "none");
+    };
+    if (map.isStyleLoaded()) syncLiveLayers(); else map.once("load", syncLiveLayers);
+    return () => { map.off("load", syncLiveLayers); };
+  }, [liveMap, showModel, showWind]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const applySatellite = () => {
+      if (!map.getSource("airgrid-satellite")) {
+        map.addSource("airgrid-satellite", {
+          type: "raster",
+          tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
+          tileSize: 256,
+          attribution: "Esri, Maxar, Earthstar Geographics",
+        });
+      }
+      if (!map.getLayer("airgrid-satellite-layer")) {
+        map.addLayer({ id: "airgrid-satellite-layer", type: "raster", source: "airgrid-satellite", paint: { "raster-opacity": 0.92 } }, map.getLayer("airgrid-estimate-cells") ? "airgrid-estimate-cells" : undefined);
+      }
+      map.setLayoutProperty("airgrid-satellite-layer", "visibility", satellite ? "visible" : "none");
+    };
+    if (map.isStyleLoaded()) applySatellite();
+    else map.once("load", applySatellite);
+    return () => { map.off("load", applySatellite); };
+  }, [satellite]);
 
   async function searchLocation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -219,6 +305,11 @@ export default function AirGridMap({
     setSearching(true);
     setSearchError("");
     try {
+      const known = KNOWN_CITIES[trimmed.toLowerCase()];
+      if (known) {
+        mapRef.current.flyTo({ center: known, zoom: 11.5, essential: true });
+        return;
+      }
       const response = await fetch(
         `https://photon.komoot.io/api/?q=${encodeURIComponent(trimmed)}&limit=1`,
       );
@@ -255,7 +346,7 @@ export default function AirGridMap({
   }
 
   return (
-    <div className="relative overflow-hidden rounded-xl border border-[#1d4543] bg-[#102c2b]">
+    <div className="relative overflow-hidden rounded-2xl border border-white/20 bg-[#102c2b] shadow-2xl">
       <div className="absolute left-4 right-16 top-4 z-10 flex flex-col gap-2 sm:right-20 sm:flex-row">
         <form
           onSubmit={searchLocation}
@@ -286,14 +377,27 @@ export default function AirGridMap({
           <LocateFixed className="h-4 w-4 text-[#42d3a1]" />
           India
         </button>
+        <button type="button" onClick={() => setSatellite((value) => !value)} className="hidden items-center justify-center rounded-xl border border-white/15 bg-[#102c2b]/90 px-3 text-xs font-semibold text-white shadow-lg backdrop-blur sm:flex" title="Toggle satellite imagery">
+          {satellite ? "Map" : "Satellite"}
+        </button>
+        <button type="button" onClick={() => setShowModel((value) => !value)} className="hidden items-center justify-center rounded-xl border border-white/15 bg-[#102c2b]/90 px-3 text-xs font-semibold text-white shadow-lg backdrop-blur sm:flex" title="Toggle modelled pollution grid">
+          {showModel ? "Hide PM" : "Show PM"}
+        </button>
+        <button type="button" onClick={() => setShowWind((value) => !value)} className="hidden items-center justify-center rounded-xl border border-white/15 bg-[#102c2b]/90 px-3 text-xs font-semibold text-white shadow-lg backdrop-blur sm:flex" title="Toggle wind direction arrows">
+          {showWind ? "Hide wind" : "Show wind"}
+        </button>
       </div>
       {searchError && (
         <p className="absolute left-5 top-[4.7rem] z-10 rounded-lg bg-[#102c2b]/95 px-3 py-2 text-xs text-[#ffd9c7]">
           {searchError}
         </p>
       )}
-      {outsideCoverage && (
-        <div className="absolute bottom-4 left-4 right-4 z-10 flex items-start gap-2 rounded-xl border border-[#ffd48a]/30 bg-[#102c2b]/90 px-3 py-2.5 text-xs text-white shadow-lg backdrop-blur sm:left-auto sm:max-w-sm">
+      <div className="absolute bottom-4 left-4 z-10 max-w-sm rounded-xl border border-white/15 bg-[#102c2b]/80 px-3 py-2.5 text-xs text-white shadow-lg backdrop-blur">
+        <strong>{liveOnly ? 'Live India PM2.5 surface' : 'India PM2.5 surface'}</strong> · Open-Meteo modelled · wind arrows show downwind direction
+        {liveMapError && <span className="block pt-1 text-[#ffd48a]">Live map unavailable — retaining last successful surface when available.</span>}
+      </div>
+      {outsideCoverage && !liveMap && (
+        <div className="absolute bottom-16 left-4 right-4 z-10 flex items-start gap-2 rounded-xl border border-[#ffd48a]/30 bg-[#102c2b]/90 px-3 py-2.5 text-xs text-white shadow-lg backdrop-blur sm:left-auto sm:max-w-sm">
           <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[#ffd48a]" />
           <span>
             <strong>Outside demo coverage</strong> — showing nearest available estimate.
@@ -389,6 +493,11 @@ function LeafletFallback({
     setSearching(true);
     setSearchError("");
     try {
+      const known = KNOWN_CITIES[trimmed.toLowerCase()];
+      if (known) {
+        mapRef.current.flyTo([known[1], known[0]], 11.5, { animate: true });
+        return;
+      }
       const response = await fetch(
         `https://photon.komoot.io/api/?q=${encodeURIComponent(trimmed)}&limit=1`,
       );
